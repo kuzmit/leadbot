@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 
-DB_NAME = "leads.db"
+DB_NAME = "/app/data/leads.db"
 
 def init_db():
     """Создает таблицу для заявок, если её еще нет"""
