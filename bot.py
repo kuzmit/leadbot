@@ -73,24 +73,56 @@ async def process_service(c: CallbackQuery, state: FSMContext):
 # Клиент ввел имя
 @dp.message(LeadForm.name)
 async def process_name(message: Message, state: FSMContext):
-    await state.update_data(name=message.text)
+    # Проверка 1: Клиент отправил текст (а не стикер или фото)
+    if not message.text:
+        await message.answer("Пожалуйста, отправьте ваше имя текстом.")
+        return
+    
+    # Проверка 2: Имя не слишком короткое
+    if len(message.text.strip()) < 2:
+        await message.answer("Имя слишком короткое. Пожалуйста, введите ваше имя.")
+        return
+        
+    await state.update_data(name=message.text.strip())
     await message.answer("Отлично! Теперь введите ваш номер телефона для связи:")
     await state.set_state(LeadForm.phone)
 
 # Клиент ввел телефон
 @dp.message(LeadForm.phone)
 async def process_phone(message: Message, state: FSMContext):
-    await state.update_data(phone=message.text)
+    # Проверка 1: Это текст?
+    if not message.text:
+        await message.answer("Пожалуйста, отправьте номер телефона текстом (например, +375291234567).")
+        return
+        
+    # Проверка 2: Оставляем только цифры из введенного текста
+    digits = "".join(filter(str.isdigit, message.text))
+    
+    # Проверка 3: Цифр должно быть хотя бы 10 (для нормального номера)
+    if len(digits) < 10:
+        await message.answer("Номер слишком короткий. Пожалуйста, введите корректный номер (минимум 10 цифр).")
+        return
+        
+    await state.update_data(phone=message.text.strip())
     await message.answer("Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')")
     await state.set_state(LeadForm.comment)
 
 # Клиент ввел комментарий (финал)
 @dp.message(LeadForm.comment)
 async def process_comment(message: Message, state: FSMContext):
-    await state.update_data(comment=message.text)
+    # Проверка 1: Это текст?
+    if not message.text:
+        await message.answer("Пожалуйста, напишите ваш комментарий текстом (или напишите 'Нет').")
+        return
+        
+    # Проверка 2: Не слишком ли длинный текст? (обрезаем до 300 символов)
+    comment_text = message.text.strip()[:300]
+    
+    await state.update_data(comment=comment_text)
     data = await state.get_data()
     await state.clear()
 
+    # ...дальше идет сохранение в базу и отправка уведомления (ОСТАВЬ ЭТОТ КОД КАК БЫЛО)...
     # Сохраняем в базу
     lead_id = database.add_lead(
         user_id=message.from_user.id,
