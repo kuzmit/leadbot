@@ -74,17 +74,24 @@ async def process_service(c: CallbackQuery, state: FSMContext):
 # Клиент ввел имя
 @dp.message(LeadForm.name)
 async def process_name(message: Message, state: FSMContext):
-    # Проверка 1: Клиент отправил текст (а не стикер или фото)
     if not message.text:
         await message.answer("Пожалуйста, отправьте ваше имя текстом.")
         return
+        
+    name_text = message.text.strip()
     
-    # Проверка 2: Имя не слишком короткое
-    if len(message.text.strip()) < 2:
+    # Проверка 1: Имя не слишком короткое
+    if len(name_text) < 2:
         await message.answer("Имя слишком короткое. Пожалуйста, введите ваше имя.")
         return
         
-    await state.update_data(name=message.text.strip())
+    # Проверка 2: В имени должны быть буквы (а не только цифры)
+    # Мы проверяем, есть ли хотя бы одна буква в тексте
+    if not any(char.isalpha() for char in name_text):
+        await message.answer("Имя должно содержать буквы. Пожалуйста, введите ваше имя (например, Иван).")
+        return
+        
+    await state.update_data(name=name_text)
     await message.answer("Отлично! Теперь введите ваш номер телефона для связи:")
     await state.set_state(LeadForm.phone)
 
