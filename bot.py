@@ -7,6 +7,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+import phonenumbers
 
 import database
 
@@ -90,22 +91,48 @@ async def process_name(message: Message, state: FSMContext):
 # Клиент ввел телефон
 @dp.message(LeadForm.phone)
 async def process_phone(message: Message, state: FSMContext):
-    # Проверка 1: Это текст?
     if not message.text:
-        await message.answer("Пожалуйста, отправьте номер телефона текстом (например, +375291234567).")
+        await message.answer("Пожалуйста, отправьте номер телефона текстом.")
         return
         
-    # Проверка 2: Оставляем только цифры из введенного текста
-    digits = "".join(filter(str.isdigit, message.text))
-    
-    # Проверка 3: Цифр должно быть хотя бы 10 (для нормального номера)
-    if len(digits) < 10:
-        await message.answer("Номер слишком короткий. Пожалуйста, введите корректный номер (минимум 10 цифр).")
-        return
+    raw_text = message.text.strip()
+    digits = "".join(filter(str.isdigit, raw_text)) # Оставляем только цифры
+
+    try:
+        # Если номер начинается с плюса, парсим как есть
+        if raw_text.startswith("+"):
+            parsed_number = phonenumbers.parse(raw_text, None)
         
-    await state.update_data(phone=message.text.strip())
-    await message.answer("Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')")
-    await state.set_state(LeadForm.comment)
+        # Если написали с 80 (например, 8029...), меняем на +7 (или +375, если хотите)
+        elif digits.startswith("80"):
+            parsed_number = phonenumbers.parse("+7" + digits[2:], None)
+            
+        # Если написали код страны без плюса (375..., 7..., 234...)
+        elif digits.startswith(("375", "7", "234")):
+            parsed_number = phonenumbers.parse("+" + digits, None)
+            
+        # Если написали просто местный номер (например, 291234567)
+        else:
+            # Указываем регион по умолчанию (BY - Беларусь, можно поменять на RU или KZ)
+            parsed_number = phonenumbers.parse(digits, "BY")
+            
+        # Проверяем, существует ли такой номер в мире
+        if not phonenumbers.is_valid_number(parsed_number):
+            raise ValueError
+            
+        # Делаем номер красивым (международный формат)
+        formatted_phone = phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+        
+        await state.update_data(phone=formatted_phone)
+        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')", reply_markup=get_cancel_kb())
+        await state.set_state(LeadForm.comment)
+
+    except phonenumbers.NumberParseException:
+        await message.answer("Не похоже на номер телефона. Пожалуйста, введите номер, например:\n+375291234567 (Беларусь)\n+79101234567 (Россия)")
+        return
+    except ValueError:
+        await message.answer("Такого номера не существует. Пожалуйста, проверьте номер и введите снова.")
+        return
 
 # Клиент ввел комментарий (финал)
 @dp.message(LeadForm.comment)
