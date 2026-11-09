@@ -74,7 +74,7 @@ async def start_lead(c: CallbackQuery, state: FSMContext):
 async def process_service(c: CallbackQuery, state: FSMContext):
     service = c.data.split(":")[1]
     await state.update_data(service=service)
-    await c.message.edit_text(f"Вы выбрали: {service}\n\nКак вас зовут?", reply_markup=get_nav_kb())
+    await c.message.edit_text(f"Вы выбрали: {service}\n\nКак вас зовут?", reply_markup=get_nav_kb("back_to_service"))
     await state.set_state(LeadForm.name)
     await c.answer()
 
@@ -138,7 +138,7 @@ async def process_phone(message: Message, state: FSMContext):
         formatted_phone = phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
         
         await state.update_data(phone=formatted_phone)
-        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')", reply_markup=get_nav_kb("back_to_name"))
+        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')", reply_markup=get_nav_kb("back_to_phone"))
         await state.set_state(LeadForm.comment)
 
     except phonenumbers.NumberParseException:
@@ -225,18 +225,21 @@ async def cancel_lead(c: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "back_to_service")
 async def back_to_service(c: CallbackQuery, state: FSMContext):
+    # Сбрасываем состояние на выбор услуги
     await state.set_state(LeadForm.service)
     await c.message.edit_text("Выберите услугу:", reply_markup=get_services_kb())
     await c.answer()
 
 @dp.callback_query(F.data == "back_to_name")
 async def back_to_name(c: CallbackQuery, state: FSMContext):
+    # Возвращаемся к вводу имени
     await state.set_state(LeadForm.name)
     await c.message.edit_text("Как вас зовут?", reply_markup=get_nav_kb("back_to_service"))
     await c.answer()
 
 @dp.callback_query(F.data == "back_to_phone")
 async def back_to_phone(c: CallbackQuery, state: FSMContext):
+    # Возвращаемся к вводу телефона
     await state.set_state(LeadForm.phone)
     await c.message.edit_text("Введите ваш номер телефона для связи:", reply_markup=get_nav_kb("back_to_name"))
     await c.answer()
