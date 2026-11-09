@@ -45,10 +45,12 @@ def get_main_kb():
         [InlineKeyboardButton(text="📝 Оставить заявку", callback_data="lead_start")]
     ])
 
-def get_cancel_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")]
-    ])
+def get_nav_kb(back_callback=None):
+    buttons = []
+    if back_callback:
+        buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=back_callback)])
+    buttons.append([InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # Команда /start
 @dp.message(Command("start"))
@@ -72,7 +74,7 @@ async def start_lead(c: CallbackQuery, state: FSMContext):
 async def process_service(c: CallbackQuery, state: FSMContext):
     service = c.data.split(":")[1]
     await state.update_data(service=service)
-    await c.message.edit_text(f"Вы выбрали: {service}\n\nКак вас зовут?", reply_markup=get_cancel_kb())
+    await c.message.edit_text(f"Вы выбрали: {service}\n\nКак вас зовут?", reply_markup=get_nav_kb())
     await state.set_state(LeadForm.name)
     await c.answer()
 
@@ -97,7 +99,7 @@ async def process_name(message: Message, state: FSMContext):
         return
         
     await state.update_data(name=name_text)
-    await message.answer("Отлично! Теперь введите ваш номер телефона для связи:", reply_markup=get_cancel_kb())
+    await message.answer("Отлично! Теперь введите ваш номер телефона для связи:", reply_markup=get_nav_kb("back_to_service"))
     await state.set_state(LeadForm.phone)
 
 # Клиент ввел телефон
@@ -136,7 +138,7 @@ async def process_phone(message: Message, state: FSMContext):
         formatted_phone = phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
         
         await state.update_data(phone=formatted_phone)
-        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')", reply_markup=get_cancel_kb())
+        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')", reply_markup=get_nav_kb("back_to_name"))
         await state.set_state(LeadForm.comment)
 
     except phonenumbers.NumberParseException:
@@ -219,6 +221,24 @@ async def cancel_lead(c: CallbackQuery, state: FSMContext):
         "❌ Заявка отменена. Вы вернулись в главное меню.",
         reply_markup=get_main_kb()
     )
+    await c.answer()
+
+@dp.callback_query(F.data == "back_to_service")
+async def back_to_service(c: CallbackQuery, state: FSMContext):
+    await state.set_state(LeadForm.service)
+    await c.message.edit_text("Выберите услугу:", reply_markup=get_services_kb())
+    await c.answer()
+
+@dp.callback_query(F.data == "back_to_name")
+async def back_to_name(c: CallbackQuery, state: FSMContext):
+    await state.set_state(LeadForm.name)
+    await c.message.edit_text("Как вас зовут?", reply_markup=get_nav_kb("back_to_service"))
+    await c.answer()
+
+@dp.callback_query(F.data == "back_to_phone")
+async def back_to_phone(c: CallbackQuery, state: FSMContext):
+    await state.set_state(LeadForm.phone)
+    await c.message.edit_text("Введите ваш номер телефона для связи:", reply_markup=get_nav_kb("back_to_name"))
     await c.answer()
 
 # Запуск бота
