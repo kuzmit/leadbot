@@ -124,7 +124,7 @@ async def process_phone(message: Message, state: FSMContext):
         formatted_phone = phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
         
         await state.update_data(phone=formatted_phone)
-        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')", reply_markup=get_cancel_kb())
+        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')")
         await state.set_state(LeadForm.comment)
 
     except phonenumbers.NumberParseException:
