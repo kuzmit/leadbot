@@ -45,6 +45,11 @@ def get_main_kb():
         [InlineKeyboardButton(text="📝 Оставить заявку", callback_data="lead_start")]
     ])
 
+def get_cancel_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")]
+    ])
+
 # Команда /start
 @dp.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
@@ -67,7 +72,7 @@ async def start_lead(c: CallbackQuery, state: FSMContext):
 async def process_service(c: CallbackQuery, state: FSMContext):
     service = c.data.split(":")[1]
     await state.update_data(service=service)
-    await c.message.edit_text(f"Вы выбрали: {service}\n\nКак вас зовут?")
+    await c.message.edit_text(f"Вы выбрали: {service}\n\nКак вас зовут?", reply_markup=get_cancel_kb())
     await state.set_state(LeadForm.name)
     await c.answer()
 
@@ -92,7 +97,7 @@ async def process_name(message: Message, state: FSMContext):
         return
         
     await state.update_data(name=name_text)
-    await message.answer("Отлично! Теперь введите ваш номер телефона для связи:")
+    await message.answer("Отлично! Теперь введите ваш номер телефона для связи:", reply_markup=get_cancel_kb())
     await state.set_state(LeadForm.phone)
 
 # Клиент ввел телефон
@@ -131,7 +136,7 @@ async def process_phone(message: Message, state: FSMContext):
         formatted_phone = phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
         
         await state.update_data(phone=formatted_phone)
-        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')")
+        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')", reply_markup=get_cancel_kb())
         await state.set_state(LeadForm.comment)
 
     except phonenumbers.NumberParseException:
@@ -206,6 +211,15 @@ async def cmd_leads(message: Message):
         text += f"№{lead[0]} | {lead[1]} | {lead[2]} | {lead[3]} | {lead[4]}\n"
     
     await message.answer(text)
+
+@dp.callback_query(F.data == "cancel_lead")
+async def cancel_lead(c: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await c.message.edit_text(
+        "❌ Заявка отменена. Вы вернулись в главное меню.",
+        reply_markup=get_main_kb()
+    )
+    await c.answer()
 
 # Запуск бота
 async def main():
