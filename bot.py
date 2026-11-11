@@ -39,6 +39,18 @@ def get_services_kb():
         [InlineKeyboardButton(text="Стрижка + борода", callback_data="svc:Комбо")]
     ])
 
+def get_time_kb():
+    # Генерируем кнопки с 10:00 до 19:00
+    hours = [f"{h:02d}:00" for h in range(10, 20)]
+    keyboard = []
+    # Разбиваем по 3 кнопки в ряд
+    for i in range(0, len(hours), 3):
+        row = [InlineKeyboardButton(text=h, callback_data=f"time:{h}") for h in hours[i:i+3]]
+        keyboard.append(row)
+    # Добавляем кнопку отмены
+    keyboard.append([InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 # Главное меню
 def get_main_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -138,8 +150,8 @@ async def process_phone(message: Message, state: FSMContext):
         formatted_phone = phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
         
         await state.update_data(phone=formatted_phone)
-        await message.answer("Отлично! Есть ли комментарий или удобное время? (Если нет, напишите 'Нет')", reply_markup=get_nav_kb("back_to_phone"))
-        await state.set_state(LeadForm.comment)
+        await message.answer("Отлично! Выберите удобное время для записи:", reply_markup=get_time_kb())
+        await state.set_state(LeadForm.comment) # Оставляем то же состояние, чтобы не ломать базу
 
     except phonenumbers.NumberParseException:
         await message.answer("Не похоже на номер телефона. Пожалуйста, введите номер, например:\n+375291234567 (Беларусь)\n+79101234567 (Россия)")
@@ -148,26 +160,17 @@ async def process_phone(message: Message, state: FSMContext):
         await message.answer("Такого номера не существует. Пожалуйста, проверьте номер и введите снова.")
         return
 
-# Клиент ввел комментарий (финал)
-@dp.message(LeadForm.comment)
-async def process_comment(message: Message, state: FSMContext):
-    # Проверка 1: Это текст?
-    if not message.text:
-        await message.answer("Пожалуйста, напишите ваш комментарий текстом (или напишите 'Нет').")
-        return
-        
-    # Проверка 2: Не слишком ли длинный текст? (обрезаем до 300 символов)
-    comment_text = message.text.strip()[:300]
-    
-    await state.update_data(comment=comment_text)
+@dp.callback_query(F.data.startswith("time:"), LeadForm.comment)
+async def process_time(c: CallbackQuery, state: FSMContext):
+    chosen_time = c.data.split(":")[1]
+    await state.update_data(comment=chosen_time) # Записываем время в поле комментария
     data = await state.get_data()
     await state.clear()
 
-    # ...дальше идет сохранение в базу и отправка уведомления (ОСТАВЬ ЭТОТ КОД КАК БЫЛО)...
     # Сохраняем в базу
     lead_id = database.add_lead(
-        user_id=message.from_user.id,
-        username=message.from_user.username,
+        user_id=c.from_user.id,
+        username=c.from_user.username,
         service=data['service'],
         name=data['name'],
         phone=data['phone'],
@@ -175,11 +178,10 @@ async def process_comment(message: Message, state: FSMContext):
     )
 
     # Пишем клиенту
-    await message.answer(
-        f"✅ Спасибо, {data['name']}! Ваша заявка №{lead_id} принята.\n"
+    await c.message.edit_text(
+        f"✅ Спасибо, {data['name']}! Ваша заявка №{lead_id} принята на {chosen_time}.\n"
         f"Мы свяжемся с вами в ближайшее время.\n"
-        f"Наш контакт: {BUSINESS_CONTACT}",
-        reply_markup=get_main_kb()
+        f"Наш контакт: {BUSINESS_CONTACT}"
     )
 
     # Отправляем уведомление тебе (админу)
@@ -188,9 +190,11 @@ async def process_comment(message: Message, state: FSMContext):
         f"Услуга: {data['service']}\n"
         f"Имя: {data['name']}\n"
         f"Телефон: {data['phone']}\n"
-        f"Комментарий: {data['comment']}\n"
-        f"От: @{message.from_user.username or 'нет_юзернейма'}"
+        f"Время: {chosen_time}\n"
+        f"От: @{c.from_user.username or 'нет_юзернейма'}"
     )
+    
+    # Кнопки для уведомления
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Взять в работу", callback_data=f"adm_status:{lead_id}:in_progress"),
@@ -203,6 +207,8 @@ async def process_comment(message: Message, state: FSMContext):
             await bot.send_message(admin_id, admin_text, reply_markup=admin_kb)
         except Exception as e:
             logging.error(f"Не удалось отправить сообщение админу {admin_id}: {e}")
+            
+    await c.answer()
 
 # Команда /leads (только для админа)
 @dp.message(Command("leads"))
