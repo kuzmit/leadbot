@@ -16,26 +16,29 @@ def init_db():
             phone TEXT,
             comment TEXT,
             status TEXT DEFAULT 'new',
+            appointment_at TEXT,  -- НОВОЕ ПОЛЕ: храним время записи
             created_at TEXT
         )
     """)
-    # Безопасное добавление колонки, если база старая
+    # Безопасная миграция для старых баз
     cursor.execute("PRAGMA table_info(leads)")
     columns = [info[1] for info in cursor.fetchall()]
     if "status" not in columns:
         cursor.execute("ALTER TABLE leads ADD COLUMN status TEXT DEFAULT 'new'")
+    if "appointment_at" not in columns:
+        cursor.execute("ALTER TABLE leads ADD COLUMN appointment_at TEXT")
         
     conn.commit()
     conn.close()
 
-def add_lead(user_id, username, service, name, phone, comment):
+def add_lead(user_id, username, service, name, phone, comment, appointment_at):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute("""
-        INSERT INTO leads (user_id, username, service, name, phone, comment, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'new', ?)
-    """, (user_id, username, service, name, phone, comment, now))
+        INSERT INTO leads (user_id, username, service, name, phone, comment, appointment_at, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?)
+    """, (user_id, username, service, name, phone, comment, appointment_at, now))
     conn.commit()
     lead_id = cursor.lastrowid
     conn.close()
@@ -74,4 +77,13 @@ def get_all_leads():
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+def is_slot_taken(appointment_at):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    # Ищем заявки на это время, у которых статус не "cancelled" (не отменена)
+    cursor.execute("SELECT COUNT(*) FROM leads WHERE appointment_at = ? AND status != 'cancelled'", (appointment_at,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
 
