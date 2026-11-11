@@ -218,21 +218,23 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         return
     
     # Склеиваем дату и время для сохранения
-    full_datetime = f"{chosen_date} в {chosen_time}"
-    await state.update_data(comment=full_datetime)
+    # Формируем время
+    full_datetime = f"{chosen_date} {chosen_time}"
     
-    # Заново получаем данные (уже с комментарием)
-    final_data = await state.get_data()
-    await state.clear()
-
-    # Сохраняем в базу
+    # ПРОВЕРКА: Занято ли это время?
+    if database.is_slot_taken(full_datetime):
+        await c.answer("❌ Это время уже занято. Пожалуйста, выберите другое.", show_alert=True)
+        return
+        
+    # Сохраняем в базу (передаем appointment_at)
     lead_id = database.add_lead(
         user_id=c.from_user.id,
         username=c.from_user.username,
         service=final_data['service'],
         name=final_data['name'],
         phone=final_data['phone'],
-        comment=final_data['comment']
+        comment=final_data.get('comment', ''), # Комментарий теперь пустой, если его нет
+        appointment_at=full_datetime
     )
 
         # Отправляем в Google Sheets и Calendar (асинхронно и безопасно)
