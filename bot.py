@@ -1,17 +1,18 @@
 import asyncio
 import os
 import logging
+import phonenumbers
+import datetime
+import database
+import csv
+import io
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
-import phonenumbers
-import datetime
-import database
-import csv
-import io
+from sheets import add_lead_to_sheet
 
 # Загружаем настройки из файла .env
 load_dotenv()
@@ -215,6 +216,17 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         phone=final_data['phone'],
         comment=final_data['comment']
     )
+
+        # Отправляем данные в Google Sheets
+    row_data = [
+        lead_id,
+        datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
+        final_data['service'],
+        final_data['name'],
+        final_data['phone'],
+        final_data['comment']
+    ]
+    add_lead_to_sheet(row_data)
 
     # Пишем клиенту
     await c.message.edit_text(
