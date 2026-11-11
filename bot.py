@@ -19,7 +19,8 @@ from calendar_sync import add_event_to_calendar
 # Загружаем настройки из файла .env
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = [int(x.strip()) for x in os.getenv("ADMIN_IDS").split(",")]
+raw_admins = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS = [int(x.strip()) for x in raw_admins.split(",") if x.strip().isdigit()]
 BUSINESS_NAME = os.getenv("BUSINESS_NAME")
 BUSINESS_CONTACT = os.getenv("BUSINESS_CONTACT")
 
@@ -136,7 +137,7 @@ async def process_name(message: Message, state: FSMContext):
         return
         
     await state.update_data(name=name_text)
-    await message.answer("Отлично! Теперь введите ваш номер телефона для связи:", reply_markup=get_nav_kb("back_to_service"))
+    await message.answer("Отлично! Теперь введите ваш номер телефона для связи:", reply_markup=get_nav_kb("back_to_name"))
     await state.set_state(LeadForm.phone)
 
 # Клиент ввел телефон
@@ -156,7 +157,7 @@ async def process_phone(message: Message, state: FSMContext):
         
         # Если написали с 80 (например, 8029...), меняем на +7 (или +375, если хотите)
         elif digits.startswith("80"):
-            parsed_number = phonenumbers.parse("+7" + digits[2:], None)
+            parsed_number = phonenumbers.parse("+375" + digits[2:], None)
             
         # Если написали код страны без плюса (375..., 7..., 234...)
         elif digits.startswith(("375", "7", "234")):
@@ -185,8 +186,8 @@ async def process_phone(message: Message, state: FSMContext):
         await message.answer("Такого номера не существует. Пожалуйста, проверьте номер и введите снова.")
         return
 
-# Ловушка, если пользователь пишет текст вместо нажатия кнопки выбора даты
-@dp.message(LeadForm.comment)
+# Ловушка: срабатывает только на текст, который НЕ начинается с /
+@dp.message(LeadForm.comment, F.text, ~F.text.startswith("/"))
 async def wrong_date_input(message: Message):
     await message.answer("Пожалуйста, выберите дату и время с помощью кнопок выше ☝️")
 
@@ -421,11 +422,16 @@ async def view_leads(c: CallbackQuery):
             
         kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons) if kb_buttons else None
         
+        safe_name = html.escape(name)
+        safe_phone = html.escape(phone)
+        safe_service = html.escape(service)
+        safe_comment = html.escape(comment or "Нет")
+        
         text = (f"<b>Заявка №{lead_id}</b> ({date})\n"
-                f"Услуга: {service}\n"
-                f"Имя: {name}\n"
-                f"Телефон: {phone}\n"
-                f"Комментарий: {comment}\n"
+                f"Услуга: {safe_service}\n"
+                f"Имя: {safe_name}\n"
+                f"Телефон: {safe_phone}\n"
+                f"Комментарий: {safe_comment}\n"
                 f"От: @{username or 'скрыт'}")
         await c.message.answer(text, reply_markup=kb, parse_mode="HTML")
     await c.answer()
@@ -447,8 +453,8 @@ async def change_status(c: CallbackQuery):
     database.update_lead_status(lead_id, new_status)
     
     status_ru = {"in_progress": "В работе", "done": "Завершена", "cancelled": "Отклонена"}.get(new_status, new_status)
-    new_text = c.message.text + f"\n\n🔄 <b>Статус изменен на: {status_ru}</b>"
-    await c.message.edit_text(new_text, reply_markup=None, parse_mode="HTML") 
+    await c.message.edit_reply_markup(reply_markup=None)
+    await c.answer(f"Статус изменен на: {status_ru}", show_alert=True)
     await c.answer("Статус обновлен!")
 
 # Запуск бота
