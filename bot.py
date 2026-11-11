@@ -209,15 +209,15 @@ async def process_date(c: CallbackQuery, state: FSMContext):
 # Обработка выбора времени
 @dp.callback_query(F.data.startswith("time:"), LeadForm.comment)
 async def process_time(c: CallbackQuery, state: FSMContext):
-    chosen_time = c.data.split(":", 1)[1] # <--- ИСПРАВЛЕНИЕ БАГА: берем "18:00" целиком!
+    chosen_time = c.data.split(":", 1)[1]
     data = await state.get_data()
     chosen_date = data.get('chosen_date', 'Дата не указана')
-
+    
+    # Защита от старых кнопок
     if chosen_date == 'Дата не указана':
         await c.answer("Сессия устарела. Пожалуйста, нажмите /start и начните заново.", show_alert=True)
         return
-    
-    # Склеиваем дату и время для сохранения
+
     # Формируем время
     full_datetime = f"{chosen_date} {chosen_time}"
     
@@ -226,6 +226,10 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         await c.answer("❌ Это время уже занято. Пожалуйста, выберите другое.", show_alert=True)
         return
         
+    # Достаем все данные пользователя перед очисткой
+    final_data = await state.get_data()
+    await state.clear()
+        
     # Сохраняем в базу (передаем appointment_at)
     lead_id = database.add_lead(
         user_id=c.from_user.id,
@@ -233,28 +237,26 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         service=final_data['service'],
         name=final_data['name'],
         phone=final_data['phone'],
-        comment=final_data.get('comment', ''), # Комментарий теперь пустой, если его нет
+        comment=final_data.get('comment', ''), 
         appointment_at=full_datetime
     )
 
-        # Отправляем в Google Sheets и Calendar (асинхронно и безопасно)
+    # --- БЕЗОПАСНЫЙ БЛОК С GOOGLE ---
     row_data = [
         lead_id,
         datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
         final_data['service'],
         final_data['name'],
         final_data['phone'],
-        final_data['comment']
+        full_datetime
     ]
 
     try:
-        # Запускаем в отдельном потоке, чтобы не тормозить бота
         await asyncio.to_thread(add_lead_to_sheet, row_data)
     except Exception as e:
         logging.error(f"Ошибка Google Sheets для заявки {lead_id}: {e}")
 
     try:
-        # Запускаем в отдельном потоке
         await asyncio.to_thread(add_event_to_calendar, 
             date_str=chosen_date,
             time_str=chosen_time,
@@ -264,6 +266,7 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         )
     except Exception as e:
         logging.error(f"Ошибка Google Calendar для заявки {lead_id}: {e}")
+    # --------------------------------------
 
     # Пишем клиенту
     await c.message.edit_text(
@@ -272,12 +275,11 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         f"Наш контакт: {BUSINESS_CONTACT}"
     )
 
-    # Экранируем данные, чтобы клиент не сломал сообщение тегами
+    # Уведомление админу
     safe_name = html.escape(final_data['name'])
     safe_phone = html.escape(final_data['phone'])
     safe_service = html.escape(final_data['service'])
 
-    # Отправляем уведомление тебе (админу)
     admin_text = (
         f"🔔 Новая заявка №{lead_id}!\n\n"
         f"Услуга: {safe_service}\n"
