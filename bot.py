@@ -143,11 +143,17 @@ async def process_name(message: Message, state: FSMContext):
 # Клиент ввел телефон
 @dp.message(LeadForm.phone)
 async def process_phone(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("Пожалуйста, отправьте номер телефона текстом.")
+    raw_text = ""
+    
+    # Проверяем: пришел текст или контакт (кнопка)
+    if message.contact:
+        raw_text = message.contact.phone_number
+    elif message.text:
+        raw_text = message.text.strip()
+    else:
+        await message.answer("Пожалуйста, отправьте номер телефона текстом или нажмите кнопку «Отправить контакт».")
         return
-        
-    raw_text = message.text.strip()
+    
     digits = "".join(filter(str.isdigit, raw_text)) # Оставляем только цифры
 
     try:
@@ -206,6 +212,10 @@ async def process_time(c: CallbackQuery, state: FSMContext):
     chosen_time = c.data.split(":", 1)[1] # <--- ИСПРАВЛЕНИЕ БАГА: берем "18:00" целиком!
     data = await state.get_data()
     chosen_date = data.get('chosen_date', 'Дата не указана')
+
+    if chosen_date == 'Дата не указана':
+        await c.answer("Сессия устарела. Пожалуйста, нажмите /start и начните заново.", show_alert=True)
+        return
     
     # Склеиваем дату и время для сохранения
     full_datetime = f"{chosen_date} в {chosen_time}"
@@ -296,15 +306,10 @@ async def back_to_date(c: CallbackQuery, state: FSMContext):
     await c.message.edit_text("Выберите удобную дату для записи:", reply_markup=get_date_kb())
     await c.answer()
 
-# Возврат с шага выбора даты на шаг ввода телефона
 @dp.callback_query(F.data == "back_to_phone_from_date", LeadForm.comment)
 async def back_to_phone_from_date(c: CallbackQuery, state: FSMContext):
     await state.set_state(LeadForm.phone)
-    # Кнопка отмены создается прямо здесь, чтобы не было ошибок
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")]
-    ])
-    await c.message.edit_text("Введите ваш номер телефона для связи:", reply_markup=kb)
+    await c.message.edit_text("Введите ваш номер телефона для связи:", reply_markup=get_nav_kb("back_to_name"))
     await c.answer()
 
 # Команда /leads (только для админа)
@@ -345,13 +350,6 @@ async def back_to_name(c: CallbackQuery, state: FSMContext):
     # Возвращаемся к вводу имени
     await state.set_state(LeadForm.name)
     await c.message.edit_text("Как вас зовут?", reply_markup=get_nav_kb("back_to_service"))
-    await c.answer()
-
-@dp.callback_query(F.data == "back_to_phone")
-async def back_to_phone(c: CallbackQuery, state: FSMContext):
-    # Возвращаемся к вводу телефона
-    await state.set_state(LeadForm.phone)
-    await c.message.edit_text("Введите ваш номер телефона для связи:", reply_markup=get_nav_kb("back_to_name"))
     await c.answer()
 
 # --- АДМИН ПАНЕЛЬ ---
@@ -455,7 +453,6 @@ async def change_status(c: CallbackQuery):
     status_ru = {"in_progress": "В работе", "done": "Завершена", "cancelled": "Отклонена"}.get(new_status, new_status)
     await c.message.edit_reply_markup(reply_markup=None)
     await c.answer(f"Статус изменен на: {status_ru}", show_alert=True)
-    await c.answer("Статус обновлен!")
 
 # Запуск бота
 async def main():
