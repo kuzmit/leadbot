@@ -39,21 +39,9 @@ def get_services_kb():
         [InlineKeyboardButton(text="Стрижка + борода", callback_data="svc:Комбо")]
     ])
 
-def get_time_kb():
-    # Генерируем кнопки с 10:00 до 19:00
-    hours = [f"{h:02d}:00" for h in range(10, 20)]
-    keyboard = []
-    # Разбиваем по 3 кнопки в ряд
-    for i in range(0, len(hours), 3):
-        row = [InlineKeyboardButton(text=h, callback_data=f"time:{h}") for h in hours[i:i+3]]
-        keyboard.append(row)
-    # Добавляем кнопку отмены
-    keyboard.append([InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")])
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
 def get_date_kb():
     today = datetime.date.today()
-    dates = [today + datetime.timedelta(days=i) for i in range(7)] # 7 дней вперед
+    dates = [today + datetime.timedelta(days=i) for i in range(7)]
     keyboard = []
     weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
     
@@ -63,9 +51,22 @@ def get_date_kb():
         btn_text = f"{day_str} ({wd})"
         if i == 0: btn_text = f"Сегодня, {day_str}"
         elif i == 1: btn_text = f"Завтра, {day_str}"
-        
         keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=f"date:{d.isoformat()}")])
-        
+    
+    # Кнопки навигации
+    keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_phone_from_date")])
+    keyboard.append([InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_time_kb():
+    hours = [f"{h:02d}:00" for h in range(10, 20)]
+    keyboard = []
+    for i in range(0, len(hours), 3):
+        row = [InlineKeyboardButton(text=h, callback_data=f"time:{h}") for h in hours[i:i+3]]
+        keyboard.append(row)
+    # Кнопки навигации
+    keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_date")])
     keyboard.append([InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -242,6 +243,26 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         except Exception as e:
             logging.error(f"Не удалось отправить сообщение админу {admin_id}: {e}")
             
+    await c.answer()
+
+# Возврат с шага времени на шаг выбора даты
+@dp.callback_query(F.data == "back_to_date", LeadForm.comment)
+async def back_to_date(c: CallbackQuery, state: FSMContext):
+    await c.message.edit_text(
+        "Выберите удобную дату для записи:", 
+        reply_markup=get_date_kb()
+    )
+    await c.answer()
+
+# Возврат с шага выбора даты на шаг ввода телефона
+@dp.callback_query(F.data == "back_to_phone_from_date", LeadForm.comment)
+async def back_to_phone_from_date(c: CallbackQuery, state: FSMContext):
+    await state.set_state(LeadForm.phone)
+    # Используем ту кнопку отмены, которая у тебя уже есть в коде
+    await c.message.edit_text(
+        "Введите ваш номер телефона для связи:", 
+        reply_markup=get_nav_kb()
+    )
     await c.answer()
 
 # Команда /leads (только для админа)
