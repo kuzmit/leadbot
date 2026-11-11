@@ -425,7 +425,8 @@ async def change_status(c: CallbackQuery):
     
     database.update_lead_status(lead_id, new_status)
     
-    new_text = c.message.text + f"\n\n🔄 <b>Статус изменен на: {new_status}</b>"
+    status_ru = {"in_progress": "В работе", "done": "Завершена", "cancelled": "Отклонена"}.get(new_status, new_status)
+    new_text = c.message.text + f"\n\n🔄 <b>Статус изменен на: {status_ru}</b>"
     await c.message.edit_text(new_text, reply_markup=None, parse_mode="HTML") 
     await c.answer("Статус обновлен!")
 
