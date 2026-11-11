@@ -6,10 +6,12 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 import phonenumbers
 import datetime
 import database
+import csv
+import io
 
 # Загружаем настройки из файла .env
 load_dotenv()
@@ -65,6 +67,7 @@ def get_time_kb():
     for i in range(0, len(hours), 3):
         row = [InlineKeyboardButton(text=h, callback_data=f"time:{h}") for h in hours[i:i+3]]
         keyboard.append(row)
+    
     # Кнопки навигации
     keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_date")])
     keyboard.append([InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")])
@@ -248,21 +251,18 @@ async def process_time(c: CallbackQuery, state: FSMContext):
 # Возврат с шага времени на шаг выбора даты
 @dp.callback_query(F.data == "back_to_date", LeadForm.comment)
 async def back_to_date(c: CallbackQuery, state: FSMContext):
-    await c.message.edit_text(
-        "Выберите удобную дату для записи:", 
-        reply_markup=get_date_kb()
-    )
+    await c.message.edit_text("Выберите удобную дату для записи:", reply_markup=get_date_kb())
     await c.answer()
 
 # Возврат с шага выбора даты на шаг ввода телефона
 @dp.callback_query(F.data == "back_to_phone_from_date", LeadForm.comment)
 async def back_to_phone_from_date(c: CallbackQuery, state: FSMContext):
     await state.set_state(LeadForm.phone)
-    # Используем ту кнопку отмены, которая у тебя уже есть в коде
-    await c.message.edit_text(
-        "Введите ваш номер телефона для связи:", 
-        reply_markup=get_nav_kb()
-    )
+    # Кнопка отмены создается прямо здесь, чтобы не было ошибок
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")]
+    ])
+    await c.message.edit_text("Введите ваш номер телефона для связи:", reply_markup=kb)
     await c.answer()
 
 # Команда /leads (только для админа)
@@ -326,6 +326,32 @@ async def cmd_admin(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
     await message.answer("🛠 <b>Панель управления заявками</b>\nВыберите категорию:", reply_markup=get_admin_menu_kb(), parse_mode="HTML")
+
+@dp.message(Command("export"))
+async def cmd_export(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+        
+    leads = database.get_all_leads()
+    if not leads:
+        await message.answer("Заявок пока нет.")
+        return
+
+    # Создаем файл в памяти
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(["ID", "Дата создания", "Услуга", "Имя", "Телефон", "Дата и время записи"])
+    
+    for lead in leads:
+        writer.writerow([lead[0], lead[1], lead[2], lead[3], lead[4], lead[5]])
+        
+    file_data = output.getvalue().encode('utf-8-sig')
+    input_file = BufferedInputFile(file_data, filename="zayavki.csv")
+    
+    await message.answer_document(
+        document=input_file, 
+        caption="📊 Все заявки в файле Excel. Откройте на компьютере."
+    )
 
 @dp.callback_query(F.data.startswith("adm_view:"))
 async def view_leads(c: CallbackQuery):

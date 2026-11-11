@@ -66,3 +66,12 @@ def count_leads_by_status():
     rows = cursor.fetchall()
     conn.close()
     return dict(rows)
+
+def get_all_leads():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, created_at, service, name, phone, comment FROM leads ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
