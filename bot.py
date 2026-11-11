@@ -6,6 +6,7 @@ import datetime
 import database
 import csv
 import io
+import html
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
@@ -184,6 +185,11 @@ async def process_phone(message: Message, state: FSMContext):
         await message.answer("Такого номера не существует. Пожалуйста, проверьте номер и введите снова.")
         return
 
+# Ловушка, если пользователь пишет текст вместо нажатия кнопки выбора даты
+@dp.message(LeadForm.comment)
+async def wrong_date_input(message: Message):
+    await message.answer("Пожалуйста, выберите дату и время с помощью кнопок выше ☝️")
+
 # Обработка выбора даты
 @dp.callback_query(F.data.startswith("date:"), LeadForm.comment)
 async def process_date(c: CallbackQuery, state: FSMContext):
@@ -218,7 +224,7 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         comment=final_data['comment']
     )
 
-        # Отправляем данные в Google Sheets
+        # Отправляем в Google Sheets и Calendar (асинхронно и безопасно)
     row_data = [
         lead_id,
         datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
@@ -227,16 +233,24 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         final_data['phone'],
         final_data['comment']
     ]
-    add_lead_to_sheet(row_data)
 
-    # Отправляем в Google Calendar
-    add_event_to_calendar(
-        date_str=chosen_date,
-        time_str=chosen_time,
-        name=final_data['name'],
-        phone=final_data['phone'],
-        service=final_data['service']
-    )
+    try:
+        # Запускаем в отдельном потоке, чтобы не тормозить бота
+        await asyncio.to_thread(add_lead_to_sheet, row_data)
+    except Exception as e:
+        logging.error(f"Ошибка Google Sheets для заявки {lead_id}: {e}")
+
+    try:
+        # Запускаем в отдельном потоке
+        await asyncio.to_thread(add_event_to_calendar, 
+            date_str=chosen_date,
+            time_str=chosen_time,
+            name=final_data['name'],
+            phone=final_data['phone'],
+            service=final_data['service']
+        )
+    except Exception as e:
+        logging.error(f"Ошибка Google Calendar для заявки {lead_id}: {e}")
 
     # Пишем клиенту
     await c.message.edit_text(
@@ -245,12 +259,17 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         f"Наш контакт: {BUSINESS_CONTACT}"
     )
 
+    # Экранируем данные, чтобы клиент не сломал сообщение тегами
+    safe_name = html.escape(final_data['name'])
+    safe_phone = html.escape(final_data['phone'])
+    safe_service = html.escape(final_data['service'])
+
     # Отправляем уведомление тебе (админу)
     admin_text = (
         f"🔔 Новая заявка №{lead_id}!\n\n"
-        f"Услуга: {final_data['service']}\n"
-        f"Имя: {final_data['name']}\n"
-        f"Телефон: {final_data['phone']}\n"
+        f"Услуга: {safe_service}\n"
+        f"Имя: {safe_name}\n"
+        f"Телефон: {safe_phone}\n"
         f"Дата и время: {full_datetime}\n"
         f"От: @{c.from_user.username or 'нет_юзернейма'}"
     )
@@ -378,6 +397,7 @@ async def cmd_export(message: Message):
 @dp.callback_query(F.data.startswith("adm_view:"))
 async def view_leads(c: CallbackQuery):
     if c.from_user.id not in ADMIN_IDS:
+        await c.answer("У вас нет прав для этого действия.", show_alert=True)
         return
         
     status = c.data.split(":")[1]
@@ -418,6 +438,7 @@ async def back_to_adm_menu(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("adm_status:"))
 async def change_status(c: CallbackQuery):
     if c.from_user.id not in ADMIN_IDS:
+        await c.answer("У вас нет прав для этого действия.", show_alert=True)
         return
         
     _, lead_id, new_status = c.data.split(":")
