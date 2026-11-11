@@ -191,9 +191,16 @@ async def process_comment(message: Message, state: FSMContext):
         f"Комментарий: {data['comment']}\n"
         f"От: @{message.from_user.username or 'нет_юзернейма'}"
     )
+    admin_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Взять в работу", callback_data=f"adm_status:{lead_id}:in_progress"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"adm_status:{lead_id}:cancelled")
+        ]
+    ])
+
     for admin_id in ADMIN_IDS:
         try:
-            await bot.send_message(admin_id, admin_text)
+            await bot.send_message(admin_id, admin_text, reply_markup=admin_kb)
         except Exception as e:
             logging.error(f"Не удалось отправить сообщение админу {admin_id}: {e}")
 
@@ -243,6 +250,75 @@ async def back_to_phone(c: CallbackQuery, state: FSMContext):
     await state.set_state(LeadForm.phone)
     await c.message.edit_text("Введите ваш номер телефона для связи:", reply_markup=get_nav_kb("back_to_name"))
     await c.answer()
+
+# --- АДМИН ПАНЕЛЬ ---
+
+def get_admin_menu_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🆕 Новые заявки", callback_data="adm_view:new")],
+        [InlineKeyboardButton(text="⏳ В работе", callback_data="adm_view:in_progress")],
+        [InlineKeyboardButton(text="✅ Завершенные", callback_data="adm_view:done")]
+    ])
+
+@dp.message(Command("admin"))
+async def cmd_admin(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await message.answer("🛠 <b>Панель управления заявками</b>\nВыберите категорию:", reply_markup=get_admin_menu_kb())
+
+@dp.callback_query(F.data.startswith("adm_view:"))
+async def view_leads(c: CallbackQuery):
+    if c.from_user.id not in ADMIN_IDS:
+        return
+        
+    status = c.data.split(":")[1]
+    status_names = {"new": "🆕 Новые", "in_progress": "⏳ В работе", "done": "✅ Завершенные"}
+    leads = database.get_leads_by_status(status, limit=5)
+    
+    if not leads:
+        await c.message.edit_text(f"{status_names[status]}\n\nЗдесь пока пусто.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ В меню", callback_data="adm_menu")]]))
+        return
+        
+    await c.message.edit_text(f"{status_names[status]} (последние 5):", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ В меню", callback_data="adm_menu")]]))
+    
+    for lead in leads:
+        lead_id, date, service, name, phone, comment, username = lead
+        
+        kb_buttons = []
+        if status == "new":
+            kb_buttons.append([InlineKeyboardButton(text="✅ В работу", callback_data=f"adm_status:{lead_id}:in_progress"), InlineKeyboardButton(text="❌ Отклонить", callback_data=f"adm_status:{lead_id}:cancelled")])
+        elif status == "in_progress":
+            kb_buttons.append([InlineKeyboardButton(text="🏁 Завершить", callback_data=f"adm_status:{lead_id}:done")])
+            
+        kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons) if kb_buttons else None
+        
+        text = (f"<b>Заявка №{lead_id}</b> ({date})\n"
+                f"Услуга: {service}\n"
+                f"Имя: {name}\n"
+                f"Телефон: {phone}\n"
+                f"Комментарий: {comment}\n"
+                f"От: @{username or 'скрыт'}")
+        await c.message.answer(text, reply_markup=kb)
+    await c.answer()
+
+@dp.callback_query(F.data == "adm_menu")
+async def back_to_adm_menu(c: CallbackQuery):
+    await c.message.edit_text("🛠 <b>Панель управления заявками</b>\nВыберите категорию:", reply_markup=get_admin_menu_kb())
+    await c.answer()
+
+@dp.callback_query(F.data.startswith("adm_status:"))
+async def change_status(c: CallbackQuery):
+    if c.from_user.id not in ADMIN_IDS:
+        return
+        
+    _, lead_id, new_status = c.data.split(":")
+    lead_id = int(lead_id)
+    
+    database.update_lead_status(lead_id, new_status)
+    
+    new_text = c.message.text + f"\n\n🔄 <b>Статус изменен на: {new_status}</b>"
+    await c.message.edit_text(new_text, reply_markup=None) 
+    await c.answer("Статус обновлен!")
 
 # Запуск бота
 async def main():
