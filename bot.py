@@ -264,7 +264,7 @@ def get_admin_menu_kb():
 async def cmd_admin(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
-    await message.answer("🛠 <b>Панель управления заявками</b>\nВыберите категорию:", reply_markup=get_admin_menu_kb())
+    await message.answer("🛠 <b>Панель управления заявками</b>\nВыберите категорию:", reply_markup=get_admin_menu_kb(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("adm_view:"))
 async def view_leads(c: CallbackQuery):
@@ -276,7 +276,7 @@ async def view_leads(c: CallbackQuery):
     leads = database.get_leads_by_status(status, limit=5)
     
     if not leads:
-        await c.message.edit_text(f"{status_names[status]}\n\nЗдесь пока пусто.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ В меню", callback_data="adm_menu")]]))
+        await c.message.edit_text(f"{status_names[status]}\n\nЗдесь пока пусто.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ В меню", callback_data="adm_menu")]]), parse_mode="HTML")
         return
         
     await c.message.edit_text(f"{status_names[status]} (последние 5):", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ В меню", callback_data="adm_menu")]]))
@@ -298,7 +298,7 @@ async def view_leads(c: CallbackQuery):
                 f"Телефон: {phone}\n"
                 f"Комментарий: {comment}\n"
                 f"От: @{username or 'скрыт'}")
-        await c.message.answer(text, reply_markup=kb)
+        await c.message.answer(text, reply_markup=kb, parse_mode="HTML")
     await c.answer()
 
 @dp.callback_query(F.data == "adm_menu")
@@ -317,7 +317,7 @@ async def change_status(c: CallbackQuery):
     database.update_lead_status(lead_id, new_status)
     
     new_text = c.message.text + f"\n\n🔄 <b>Статус изменен на: {new_status}</b>"
-    await c.message.edit_text(new_text, reply_markup=None) 
+    await c.message.edit_text(new_text, reply_markup=None, parse_mode="HTML") 
     await c.answer("Статус обновлен!")
 
 # Запуск бота
