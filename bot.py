@@ -13,6 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from sheets import add_lead_to_sheet
+from calendar_sync import add_event_to_calendar
 
 # Загружаем настройки из файла .env
 load_dotenv()
@@ -227,6 +228,15 @@ async def process_time(c: CallbackQuery, state: FSMContext):
         final_data['comment']
     ]
     add_lead_to_sheet(row_data)
+
+    # Отправляем в Google Calendar
+    add_event_to_calendar(
+        date_str=chosen_date,
+        time_str=chosen_time,
+        name=final_data['name'],
+        phone=final_data['phone'],
+        service=final_data['service']
+    )
 
     # Пишем клиенту
     await c.message.edit_text(
