@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 import phonenumbers
-
+import datetime
 import database
 
 # Загружаем настройки из файла .env
@@ -48,6 +48,24 @@ def get_time_kb():
         row = [InlineKeyboardButton(text=h, callback_data=f"time:{h}") for h in hours[i:i+3]]
         keyboard.append(row)
     # Добавляем кнопку отмены
+    keyboard.append([InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_date_kb():
+    today = datetime.date.today()
+    dates = [today + datetime.timedelta(days=i) for i in range(7)] # 7 дней вперед
+    keyboard = []
+    weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    
+    for i, d in enumerate(dates):
+        day_str = d.strftime("%d.%m")
+        wd = weekdays[d.weekday()]
+        btn_text = f"{day_str} ({wd})"
+        if i == 0: btn_text = f"Сегодня, {day_str}"
+        elif i == 1: btn_text = f"Завтра, {day_str}"
+        
+        keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=f"date:{d.isoformat()}")])
+        
     keyboard.append([InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_lead")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -150,8 +168,8 @@ async def process_phone(message: Message, state: FSMContext):
         formatted_phone = phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
         
         await state.update_data(phone=formatted_phone)
-        await message.answer("Отлично! Выберите удобное время для записи:", reply_markup=get_time_kb())
-        await state.set_state(LeadForm.comment) # Оставляем то же состояние, чтобы не ломать базу
+        await message.answer("Отлично! Выберите удобную дату для записи:", reply_markup=get_date_kb())
+        await state.set_state(LeadForm.comment) 
 
     except phonenumbers.NumberParseException:
         await message.answer("Не похоже на номер телефона. Пожалуйста, введите номер, например:\n+375291234567 (Беларусь)\n+79101234567 (Россия)")
@@ -160,26 +178,43 @@ async def process_phone(message: Message, state: FSMContext):
         await message.answer("Такого номера не существует. Пожалуйста, проверьте номер и введите снова.")
         return
 
+# Обработка выбора даты
+@dp.callback_query(F.data.startswith("date:"), LeadForm.comment)
+async def process_date(c: CallbackQuery, state: FSMContext):
+    chosen_date = c.data.split(":", 1)[1] # Получаем дату в формате 2026-11-11
+    await state.update_data(chosen_date=chosen_date)
+    # Показываем кнопки времени
+    await c.message.edit_text(f"Дата: {chosen_date}\n\nТеперь выберите удобное время:", reply_markup=get_time_kb())
+    await c.answer()
+
+# Обработка выбора времени
 @dp.callback_query(F.data.startswith("time:"), LeadForm.comment)
 async def process_time(c: CallbackQuery, state: FSMContext):
-    chosen_time = c.data.split(":")[1]
-    await state.update_data(comment=chosen_time) # Записываем время в поле комментария
+    chosen_time = c.data.split(":", 1)[1] # <--- ИСПРАВЛЕНИЕ БАГА: берем "18:00" целиком!
     data = await state.get_data()
+    chosen_date = data.get('chosen_date', 'Дата не указана')
+    
+    # Склеиваем дату и время для сохранения
+    full_datetime = f"{chosen_date} в {chosen_time}"
+    await state.update_data(comment=full_datetime)
+    
+    # Заново получаем данные (уже с комментарием)
+    final_data = await state.get_data()
     await state.clear()
 
     # Сохраняем в базу
     lead_id = database.add_lead(
         user_id=c.from_user.id,
         username=c.from_user.username,
-        service=data['service'],
-        name=data['name'],
-        phone=data['phone'],
-        comment=data['comment']
+        service=final_data['service'],
+        name=final_data['name'],
+        phone=final_data['phone'],
+        comment=final_data['comment']
     )
 
     # Пишем клиенту
     await c.message.edit_text(
-        f"✅ Спасибо, {data['name']}! Ваша заявка №{lead_id} принята на {chosen_time}.\n"
+        f"✅ Спасибо, {final_data['name']}! Ваша заявка №{lead_id} принята на {full_datetime}.\n"
         f"Мы свяжемся с вами в ближайшее время.\n"
         f"Наш контакт: {BUSINESS_CONTACT}"
     )
@@ -187,14 +222,13 @@ async def process_time(c: CallbackQuery, state: FSMContext):
     # Отправляем уведомление тебе (админу)
     admin_text = (
         f"🔔 Новая заявка №{lead_id}!\n\n"
-        f"Услуга: {data['service']}\n"
-        f"Имя: {data['name']}\n"
-        f"Телефон: {data['phone']}\n"
-        f"Время: {chosen_time}\n"
+        f"Услуга: {final_data['service']}\n"
+        f"Имя: {final_data['name']}\n"
+        f"Телефон: {final_data['phone']}\n"
+        f"Дата и время: {full_datetime}\n"
         f"От: @{c.from_user.username or 'нет_юзернейма'}"
     )
     
-    # Кнопки для уведомления
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Взять в работу", callback_data=f"adm_status:{lead_id}:in_progress"),
